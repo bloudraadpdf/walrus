@@ -49,6 +49,14 @@ impl CodeAddressGenerator {
         }
     }
 
+    pub(crate) fn live_ranges(&self, range: Range<usize>) -> impl Iterator<Item = Range<usize>> + '_ {
+        self.address_convert_table.iter().filter_map(move |(function, _)| {
+            let start = range.start.max(function.start);
+            let end = range.end.min(function.end);
+            (start < end).then_some(start..end)
+        })
+    }
+
     pub(crate) fn find_address(
         &self,
         address: usize,

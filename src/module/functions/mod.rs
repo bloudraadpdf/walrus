@@ -738,8 +738,9 @@ impl Emit for ModuleFunctions {
             ));
         }
         cx.code_transform.function_ranges.sort_by_key(|i| i.0);
-        // FIXME: code section start in DWARF debug information expects 2 bytes before actual code section start.
-        cx.code_transform.code_section_start = code_section_start_offset - 2;
+        let mut function_count = Vec::new();
+        wasm_code_section.len().encode(&mut function_count);
+        cx.code_transform.code_section_start = code_section_start_offset - function_count.len();
         cx.code_transform.instruction_map = instruction_map.into_iter().collect();
     }
 }

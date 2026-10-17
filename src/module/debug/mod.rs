@@ -97,6 +97,41 @@ impl Emit for ModuleDebugData {
                 from_dwarf.unit(from_id).expect("readable unit");
             let unit = dwarf.units.get_mut(id);
 
+            let mut updates = Vec::new();
+            {
+                let mut from_entries = from_unit.entries();
+                let mut entries = DebuggingInformationCursor::new(unit);
+                while let (Ok(Some((_, from_entry))), Some(entry)) =
+                    (from_entries.next_dfs(), entries.next_dfs())
+                {
+                    let mut attrs = from_entry.attrs();
+                    while let Some(attr) = attrs.next().expect("readable attribute") {
+                        if let Some(mut source_ranges) = from_dwarf
+                            .attr_ranges(&from_unit, attr.value()).expect("readable ranges")
+                        {
+                            let mut ranges = vec![write::Range::BaseAddress {
+                                address: write::Address::Constant(0),
+                            }];
+                            while let Some(range) = source_ranges.next().expect("readable range") {
+                                for live in address_generator.live_ranges(range.begin as usize..range.end as usize) {
+                                    let begin = convert_address(live.start as u64, AddressSearchPreference::ExclusiveFunctionEnd)
+                                        .unwrap_or_else(|| panic!("live range start [{:#x}, {:#x}), DIE {:?}", live.start, live.end, from_entry.offset()));
+                                    let end = convert_address(live.end as u64, AddressSearchPreference::InclusiveFunctionEnd)
+                                        .unwrap_or_else(|| panic!("live range end [{:#x}, {:#x}), DIE {:?}", live.start, live.end, from_entry.offset()));
+                                    ranges.push(write::Range::StartEnd { begin, end });
+                                }
+                            }
+                            updates.push((entry.id(), attr.name(), write::RangeList(ranges)));
+                        }
+                    }
+                }
+            }
+            unit.ranges = write::RangeListTable::default();
+            for (entry, name, ranges) in updates {
+                let id = unit.ranges.add(ranges);
+                unit.get_mut(entry).set(name, write::AttributeValue::RangeListRef(id));
+            }
+
             // perform high pc transformation of DWARF .debug_info
             {
                 let mut from_entries = from_unit.entries();
